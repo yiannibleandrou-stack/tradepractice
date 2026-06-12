@@ -12,12 +12,6 @@ ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY")
 ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 
-if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
-    raise RuntimeError("Missing Alpaca API keys.")
-
-if not WEBHOOK_SECRET:
-    raise RuntimeError("Missing WEBHOOK_SECRET.")
-
 trading_client = TradingClient(
     api_key=ALPACA_API_KEY,
     secret_key=ALPACA_SECRET_KEY,
@@ -37,40 +31,55 @@ def home():
 def webhook():
     data = request.get_json(silent=True)
 
+    print("Received webhook data:", data, flush=True)
+
     if not data:
+        print("ERROR: No JSON received", flush=True)
         return jsonify({"error": "No JSON received"}), 400
 
     if data.get("secret") != WEBHOOK_SECRET:
+        print("ERROR: Bad webhook secret", flush=True)
         return jsonify({"error": "Unauthorized"}), 401
 
     symbol = data.get("ticker") or data.get("symbol")
     action = str(data.get("action", "")).lower()
     qty = float(data.get("qty", 1))
 
+    print(f"Parsed order: symbol={symbol}, action={action}, qty={qty}", flush=True)
+
     if not symbol:
+        print("ERROR: Missing ticker/symbol", flush=True)
         return jsonify({"error": "Missing ticker/symbol"}), 400
 
     if action not in ["buy", "sell"]:
+        print("ERROR: Invalid action", flush=True)
         return jsonify({"error": "Action must be buy or sell"}), 400
-
-    if qty <= 0:
-        return jsonify({"error": "Quantity must be positive"}), 400
 
     side = OrderSide.BUY if action == "buy" else OrderSide.SELL
 
-    order_data = MarketOrderRequest(
-        symbol=symbol,
-        qty=qty,
-        side=side,
-        time_in_force=TimeInForce.DAY
-    )
+    try:
+        order_data = MarketOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=side,
+            time_in_force=TimeInForce.DAY
+        )
 
-    order = trading_client.submit_order(order_data)
+        order = trading_client.submit_order(order_data)
 
-    return jsonify({
-        "status": "order_submitted",
-        "symbol": symbol,
-        "action": action,
-        "qty": qty,
-        "alpaca_order_id": str(order.id)
-    })
+        print("ALPACA ORDER SUBMITTED:", order, flush=True)
+
+        return jsonify({
+            "status": "order_submitted",
+            "symbol": symbol,
+            "action": action,
+            "qty": qty,
+            "alpaca_order_id": str(order.id)
+        }), 200
+
+    except Exception as e:
+        print("ALPACA ERROR:", str(e), flush=True)
+        return jsonify({
+            "error": "Alpaca order failed",
+            "details": str(e)
+        }), 500
